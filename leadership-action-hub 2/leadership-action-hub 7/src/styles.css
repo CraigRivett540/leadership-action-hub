@@ -1,0 +1,83 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+@theme {
+  /* Helping Heroes brand (from helpingheroes.com.au) */
+  --color-hh-primary: #0063a5;
+  --color-hh-primary-dark: #004d82;
+  --color-hh-accent: #0088cc;
+  --color-hh-navy: #1a2b3c;
+
+  /* Community Assist brand (from communityassist.com.au) */
+  --color-ca-primary: #a80261;
+  --color-ca-primary-dark: #91004e;
+  --color-ca-soft: #fceeed;
+  --color-ca-accent: #e55550;
+  --color-ca-purple: #573d83;
+
+  /* Semantic app tokens — HH blue as primary UI chrome */
+  --color-background: #f0f4f8;
+  --color-foreground: #1a2332;
+  --color-card: #ffffff;
+  --color-card-foreground: #1a2332;
+  --color-popover: #ffffff;
+  --color-popover-foreground: #1a2332;
+  --color-primary: #0063a5;
+  --color-primary-foreground: #ffffff;
+  --color-secondary: #e8eef4;
+  --color-secondary-foreground: #1a2b3c;
+  --color-muted: #e8eef4;
+  --color-muted-foreground: #4a5a6a;
+  --color-accent: #fceeed;
+  --color-accent-foreground: #a80261;
+  --color-destructive: #c62828;
+  --color-destructive-foreground: #ffffff;
+  --color-border: rgba(26, 43, 60, 0.12);
+  --color-input: rgba(26, 43, 60, 0.14);
+  --color-ring: #0063a5;
+  --color-success: #2e7d32;
+  --color-warning: #c77800;
+  --color-sidebar: #ffffff;
+  --color-sidebar-foreground: #1a2b3c;
+  --color-sidebar-border: rgba(26, 43, 60, 0.1);
+  --color-sidebar-accent: #e3f2fd;
+  --color-sidebar-accent-foreground: #004d82;
+
+  --radius-sm: 0.375rem;
+  --radius-md: 0.5rem;
+  --radius-lg: 0.75rem;
+  --radius-xl: 1rem;
+  --radius: 0.75rem;
+
+  --font-sans: "Inter", "Segoe UI", system-ui, -apple-system, sans-serif;
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  html {
+    @apply antialiased;
+  }
+
+  body {
+    @apply bg-background text-foreground font-sans min-h-screen;
+    background-image:
+      radial-gradient(ellipse 80% 50% at 10% -10%, rgba(0, 99, 165, 0.1) 0%, transparent 55%),
+      radial-gradient(ellipse 55% 40% at 95% 8%, rgba(168, 2, 97, 0.07) 0%, transparent 50%),
+      linear-gradient(165deg, #e8f0f7 0%, #f0f5fa 45%, #faf2f6 100%);
+    background-attachment: fixed;
+  }
+
+  button:not(:disabled),
+  [role="button"]:not(:disabled) {
+    cursor: pointer;
+  }
+}
+
+@layer utilities {
+  .tabular {
+    font-variant-numeric: tabular-nums;
+  }
+}
