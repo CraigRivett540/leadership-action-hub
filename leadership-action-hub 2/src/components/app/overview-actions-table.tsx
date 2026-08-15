@@ -1,19 +1,21 @@
 import { useMemo, useState } from "react";
-import { ArrowDown, ArrowUp, ArrowUpDown } from "lucide-react";
+import { ActionDetailDialog } from "@/components/app/action-detail-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import {
   assigneeLabel,
+  familyItemsForUser,
   isOverdue,
   isTeamAction,
+  visibleActionsForViewer,
+  workTodoItemsForUser,
   useDashboardStore,
 } from "@/lib/store";
 import type { ActionItem, StaffProfile } from "@/lib/types";
 import { cn, formatDate } from "@/lib/utils";
 
-type SortKey = "received" | "due" | "task" | "type" | "member" | "status";
-type SortDir = "asc" | "desc";
+type StatusFilter = "open" | "overdue" | "completed" | "all";
 
 function statusLabel(a: ActionItem) {
   if (a.status === "closed") return "Completed";
@@ -27,349 +29,236 @@ function statusTone(a: ActionItem): "open" | "closed" | "overdue" {
   return "open";
 }
 
-export function OverviewActionsTable({
-  profile,
-  isAdmin,
+function kindLabel(a: ActionItem) {
+  if (a.type === "request" || a.type === "personal_request") return "Request";
+  if (a.type === "family" || a.type === "todo") return "Personal";
+  return "Task";
+}
+
+function applyStatus(list: ActionItem[], filter: StatusFilter) {
+  if (filter === "completed") return list.filter((a) => a.status === "closed");
+  if (filter === "overdue") return list.filter(isOverdue);
+  if (filter === "open") return list.filter((a) => a.status === "open");
+  return list;
+}
+
+function ActionLines({
+  items,
+  empty,
+  onOpen,
 }: {
-  profile: StaffProfile;
-  isAdmin: boolean;
+  items: ActionItem[];
+  empty: string;
+  onOpen: (id: string) => void;
 }) {
   const staff = useDashboardStore((s) => s.staff);
   const groups = useDashboardStore((s) => s.groups);
-  const actions = useDashboardStore((s) => s.actions);
-  const toggleActionStatus = useDashboardStore((s) => s.toggleActionStatus);
-
-  const [typeFilter, setTypeFilter] = useState<"all" | "task" | "request">("all");
-  const [statusFilter, setStatusFilter] = useState<"open" | "all" | "overdue" | "closed">("open");
-  const [memberFilter, setMemberFilter] = useState<string>("all");
-  const [sortKey, setSortKey] = useState<SortKey>("due");
-  const [sortDir, setSortDir] = useState<SortDir>("asc");
-  const [busyId, setBusyId] = useState<string | null>(null);
-
-  const teamStaff = staff.filter((s) => s.active);
-
-  const baseList = useMemo(() => {
-    // Everyone sees shared team tasks/requests (Family / private work excluded by isTeamAction)
-    return actions.filter(isTeamAction);
-  }, [actions]);
-
-  const rows = useMemo(() => {
-    let list = [...baseList];
-    // Closed items only when Closed filter is selected
-    if (statusFilter === "closed") {
-      list = list.filter((a) => a.status === "closed");
-    } else if (statusFilter === "overdue") {
-      list = list.filter(isOverdue);
-    } else {
-      // "open" and "all" — hide completed items
-      list = list.filter((a) => a.status === "open");
-    }
-    if (typeFilter !== "all") list = list.filter((a) => a.type === typeFilter);
-    if (memberFilter !== "all") {
-      list = list.filter((a) => {
-        if (a.assigneeId === memberFilter) return true;
-        const g = groups.find((x) => x.id === a.assigneeId);
-        return Boolean(g?.memberIds.includes(memberFilter));
-      });
-    }
-
-    const dir = sortDir === "asc" ? 1 : -1;
-    list.sort((a, b) => {
-      const memberA = assigneeLabel(staff, groups, a.assigneeId);
-      const memberB = assigneeLabel(staff, groups, b.assigneeId);
-      let cmp = 0;
-      switch (sortKey) {
-        case "received":
-          cmp = (a.createdAt || "").localeCompare(b.createdAt || "");
-          break;
-        case "due":
-          cmp = (a.dueDate ?? "9999-99-99").localeCompare(b.dueDate ?? "9999-99-99");
-          break;
-        case "task":
-          cmp = a.title.localeCompare(b.title);
-          break;
-        case "type":
-          cmp = a.type.localeCompare(b.type);
-          break;
-        case "member":
-          cmp = memberA.localeCompare(memberB);
-          break;
-        case "status":
-          cmp = statusLabel(a).localeCompare(statusLabel(b));
-          break;
-      }
-      return cmp * dir;
-    });
-    return list;
-  }, [
-    baseList,
-    statusFilter,
-    typeFilter,
-    memberFilter,
-    sortKey,
-    sortDir,
-    staff,
-    groups,
-  ]);
-
-  function toggleSort(key: SortKey) {
-    if (sortKey === key) {
-      setSortDir((d) => (d === "asc" ? "desc" : "asc"));
-    } else {
-      setSortKey(key);
-      setSortDir("asc");
-    }
-  }
-
-  function SortBtn({ k, label }: { k: SortKey; label: string }) {
-    const active = sortKey === k;
-    return (
-      <button
-        type="button"
-        onClick={() => toggleSort(k)}
-        className={cn(
-          "inline-flex items-center gap-1 text-[11px] font-semibold uppercase tracking-wide transition",
-          active ? "text-hh-navy" : "text-muted-foreground hover:text-hh-navy",
-        )}
-      >
-        {label}
-        {active ? (
-          sortDir === "asc" ? (
-            <ArrowUp className="size-3" />
-          ) : (
-            <ArrowDown className="size-3" />
-          )
-        ) : (
-          <ArrowUpDown className="size-3 opacity-50" />
-        )}
-      </button>
-    );
-  }
 
   return (
-    <div className="space-y-4">
+    <>
+      <div className="hidden overflow-x-auto md:block">
+        <table className="w-full min-w-[680px] text-left text-sm">
+          <thead>
+            <tr className="border-b border-border bg-secondary/40">
+              <th className="px-4 py-2.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                Action
+              </th>
+              <th className="px-3 py-2.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                Type
+              </th>
+              <th className="px-3 py-2.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                Attributed to
+              </th>
+              <th className="px-3 py-2.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                Due
+              </th>
+              <th className="px-3 py-2.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                Status
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            {items.map((a) => {
+              const overdue = isOverdue(a);
+              return (
+                <tr
+                  key={a.id}
+                  className={cn(
+                    "cursor-pointer border-b border-border/80 last:border-0 transition hover:bg-secondary/30",
+                    overdue && "bg-destructive/[0.03]",
+                  )}
+                  onClick={() => onOpen(a.id)}
+                >
+                  <td className="px-4 py-3 font-medium text-hh-navy">{a.title}</td>
+                  <td className="px-3 py-3">
+                    <Badge variant={a.type === "family" || a.type === "todo" ? "family" : a.type}>
+                      {kindLabel(a)}
+                    </Badge>
+                  </td>
+                  <td className="px-3 py-3 text-muted-foreground">
+                    {assigneeLabel(staff, groups, a.assigneeId)}
+                  </td>
+                  <td
+                    className={cn(
+                      "px-3 py-3 tabular-nums",
+                      overdue ? "font-semibold text-destructive" : "text-muted-foreground",
+                    )}
+                  >
+                    {formatDate(a.dueDate)}
+                  </td>
+                  <td className="px-3 py-3">
+                    <Badge variant={statusTone(a)}>{statusLabel(a)}</Badge>
+                  </td>
+                </tr>
+              );
+            })}
+            {items.length === 0 && (
+              <tr>
+                <td colSpan={5} className="px-4 py-8 text-center text-sm text-muted-foreground">
+                  {empty}
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+
+      <div className="divide-y divide-border md:hidden">
+        {items.map((a) => {
+          const overdue = isOverdue(a);
+          return (
+            <button
+              key={a.id}
+              type="button"
+              className={cn(
+                "block w-full space-y-1.5 px-4 py-3 text-left",
+                overdue && "bg-destructive/[0.03]",
+              )}
+              onClick={() => onOpen(a.id)}
+            >
+              <div className="font-medium text-hh-navy">{a.title}</div>
+              <div className="flex flex-wrap gap-1.5">
+                <Badge variant={a.type === "family" || a.type === "todo" ? "family" : a.type}>
+                  {kindLabel(a)}
+                </Badge>
+                <Badge variant={statusTone(a)}>{statusLabel(a)}</Badge>
+              </div>
+              <div className="text-xs text-muted-foreground">
+                {assigneeLabel(staff, groups, a.assigneeId)} · Due {formatDate(a.dueDate)}
+              </div>
+            </button>
+          );
+        })}
+        {items.length === 0 && (
+          <div className="px-4 py-8 text-center text-sm text-muted-foreground">{empty}</div>
+        )}
+      </div>
+    </>
+  );
+}
+
+export function OverviewActionsTable({
+  profile,
+  isAdmin,
+  onEdit,
+}: {
+  profile: StaffProfile;
+  isAdmin: boolean;
+  onEdit?: (action: ActionItem) => void;
+}) {
+  const groups = useDashboardStore((s) => s.groups);
+  const actions = useDashboardStore((s) => s.actions);
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>("open");
+  const [detailId, setDetailId] = useState<string | null>(null);
+
+  const visible = useMemo(
+    () => visibleActionsForViewer(actions, profile.id, groups),
+    [actions, profile.id, groups],
+  );
+
+  const work = useMemo(
+    () => applyStatus(visible.filter(isTeamAction), statusFilter),
+    [visible, statusFilter],
+  );
+  const myTodo = useMemo(
+    () => applyStatus(workTodoItemsForUser(visible, profile.id), statusFilter),
+    [visible, profile.id, statusFilter],
+  );
+  const personal = useMemo(
+    () => applyStatus(familyItemsForUser(visible, profile.id), statusFilter),
+    [visible, profile.id, statusFilter],
+  );
+
+  const workOpen = visible.filter((a) => isTeamAction(a) && a.status === "open").length;
+  const todoOpen = workTodoItemsForUser(visible, profile.id).filter((a) => a.status === "open").length;
+  const personalOpen = familyItemsForUser(visible, profile.id).filter((a) => a.status === "open").length;
+
+  return (
+    <div className="space-y-5">
       <div className="flex flex-wrap items-center gap-2">
-        <span className="text-xs font-medium text-muted-foreground">Filter</span>
-        {(["open", "overdue", "all", "closed"] as const).map((f) => (
+        <span className="text-xs font-medium text-muted-foreground">Status</span>
+        {(["open", "overdue", "completed", "all"] as const).map((f) => (
           <Button
             key={f}
             size="sm"
             variant={statusFilter === f ? "default" : "outline"}
             onClick={() => setStatusFilter(f)}
           >
-            {f === "all"
-              ? "All open"
-              : f === "closed"
-                ? "Closed"
-                : f[0]!.toUpperCase() + f.slice(1)}
+            {f === "all" ? "All" : f[0]!.toUpperCase() + f.slice(1)}
           </Button>
         ))}
-        <span className="mx-1 h-4 w-px bg-border" />
-        {(["all", "task", "request"] as const).map((f) => (
-          <Button
-            key={f}
-            size="sm"
-            variant={typeFilter === f ? "secondary" : "outline"}
-            onClick={() => setTypeFilter(f)}
-          >
-            {f === "all" ? "All types" : f[0]!.toUpperCase() + f.slice(1) + "s"}
-          </Button>
-        ))}
-        {isAdmin && (
-          <>
-            <span className="mx-1 h-4 w-px bg-border" />
-            <select
-              className="h-8 rounded-md border border-input bg-card px-2 text-xs font-medium"
-              value={memberFilter}
-              onChange={(e) => setMemberFilter(e.target.value)}
-            >
-              <option value="all">All team members</option>
-              {teamStaff.map((s) => (
-                <option key={s.id} value={s.id}>
-                  {s.name}
-                </option>
-              ))}
-            </select>
-          </>
-        )}
       </div>
 
       <Card className="overflow-hidden shadow-sm">
         <CardContent className="p-0">
-          <div className="border-b border-border px-4 py-3">
-            <h3 className="text-sm font-semibold text-hh-navy">
-              Actions required{" "}
-              <span className="font-normal text-muted-foreground">(live)</span>
-            </h3>
+          <div className="flex items-center justify-between border-b border-border px-4 py-3">
+            <div>
+              <h3 className="text-sm font-semibold text-hh-navy">Work actions</h3>
+              <p className="text-xs text-muted-foreground">Team tasks and requests</p>
+            </div>
+            <span className="text-xs font-semibold text-muted-foreground">{workOpen} open</span>
           </div>
-
-          <div className="hidden overflow-x-auto md:block">
-            <table className="w-full min-w-[720px] text-left text-sm">
-              <thead>
-                <tr className="border-b border-border bg-secondary/40">
-                  <th className="px-4 py-2.5">
-                    <SortBtn k="task" label="Action" />
-                  </th>
-                  <th className="px-3 py-2.5">
-                    <SortBtn k="type" label="Type" />
-                  </th>
-                  <th className="px-3 py-2.5">
-                    <SortBtn k="member" label="Team member" />
-                  </th>
-                  <th className="px-3 py-2.5">
-                    <SortBtn k="received" label="Received" />
-                  </th>
-                  <th className="px-3 py-2.5">
-                    <SortBtn k="due" label="Due" />
-                  </th>
-                  <th className="px-3 py-2.5">
-                    <SortBtn k="status" label="Status" />
-                  </th>
-                  <th className="px-4 py-2.5 text-right text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-                    Action
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                {rows.map((a) => {
-                  const overdue = isOverdue(a);
-                  return (
-                    <tr
-                      key={a.id}
-                      className={cn(
-                        "border-b border-border/80 last:border-0 transition hover:bg-secondary/30",
-                        overdue && "bg-destructive/[0.03]",
-                      )}
-                    >
-                      <td className="px-4 py-3">
-                        <div className="font-medium text-hh-navy">{a.title}</div>
-                      </td>
-                      <td className="px-3 py-3">
-                        <Badge variant={a.type}>{a.type}</Badge>
-                      </td>
-                      <td className="px-3 py-3 text-muted-foreground">
-                        {assigneeLabel(staff, groups, a.assigneeId)}
-                      </td>
-                      <td className="px-3 py-3 tabular-nums text-muted-foreground">
-                        {formatDate(a.createdAt)}
-                      </td>
-                      <td
-                        className={cn(
-                          "px-3 py-3 tabular-nums",
-                          overdue
-                            ? "font-semibold text-destructive"
-                            : "text-muted-foreground",
-                        )}
-                      >
-                        {formatDate(a.dueDate)}
-                      </td>
-                      <td className="px-3 py-3">
-                        <Badge variant={statusTone(a)}>{statusLabel(a)}</Badge>
-                      </td>
-                      <td className="px-4 py-3 text-right">
-                        {a.status === "open" ? (
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            disabled={busyId === a.id}
-                            onClick={async () => {
-                              setBusyId(a.id);
-                              try {
-                                await toggleActionStatus(a.id);
-                              } finally {
-                                setBusyId(null);
-                              }
-                            }}
-                          >
-                            Open
-                          </Button>
-                        ) : (
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            disabled={busyId === a.id}
-                            onClick={async () => {
-                              setBusyId(a.id);
-                              try {
-                                await toggleActionStatus(a.id);
-                              } finally {
-                                setBusyId(null);
-                              }
-                            }}
-                          >
-                            Reopen
-                          </Button>
-                        )}
-                      </td>
-                    </tr>
-                  );
-                })}
-                {rows.length === 0 && (
-                  <tr>
-                    <td
-                      colSpan={7}
-                      className="px-4 py-10 text-center text-sm text-muted-foreground"
-                    >
-                      No actions match this filter.
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
-
-          <div className="divide-y divide-border md:hidden">
-            {rows.map((a) => {
-              const overdue = isOverdue(a);
-              return (
-                <div
-                  key={a.id}
-                  className={cn("space-y-2 px-4 py-3", overdue && "bg-destructive/[0.03]")}
-                >
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="min-w-0">
-                      <div className="font-medium text-hh-navy">{a.title}</div>
-                      <div className="mt-1 flex flex-wrap gap-1.5">
-                        <Badge variant={a.type}>{a.type}</Badge>
-                        <Badge variant={statusTone(a)}>{statusLabel(a)}</Badge>
-                      </div>
-                    </div>
-                    {a.status === "open" ? (
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        disabled={busyId === a.id}
-                        onClick={async () => {
-                          setBusyId(a.id);
-                          try {
-                            await toggleActionStatus(a.id);
-                          } finally {
-                            setBusyId(null);
-                          }
-                        }}
-                      >
-                        Open
-                      </Button>
-                    ) : null}
-                  </div>
-                  <div className="grid grid-cols-2 gap-1 text-xs text-muted-foreground">
-                    <span>Member: {assigneeLabel(staff, groups, a.assigneeId)}</span>
-                    <span>Received: {formatDate(a.createdAt)}</span>
-                    <span className={overdue ? "font-semibold text-destructive" : undefined}>
-                      Due: {formatDate(a.dueDate)}
-                    </span>
-                  </div>
-                </div>
-              );
-            })}
-            {rows.length === 0 && (
-              <div className="px-4 py-8 text-center text-sm text-muted-foreground">
-                No actions match this filter.
-              </div>
-            )}
-          </div>
+          <ActionLines items={work} empty="No work actions in this filter." onOpen={setDetailId} />
         </CardContent>
       </Card>
+
+      <Card className="overflow-hidden shadow-sm">
+        <CardContent className="p-0">
+          <div className="flex items-center justify-between border-b border-border px-4 py-3">
+            <div>
+              <h3 className="text-sm font-semibold text-hh-navy">My work to do</h3>
+              <p className="text-xs text-muted-foreground">Private work list</p>
+            </div>
+            <span className="text-xs font-semibold text-muted-foreground">{todoOpen} open</span>
+          </div>
+          <ActionLines items={myTodo} empty="No work to-do items in this filter." onOpen={setDetailId} />
+        </CardContent>
+      </Card>
+
+      {isAdmin && (
+        <Card className="overflow-hidden shadow-sm">
+          <CardContent className="p-0">
+            <div className="flex items-center justify-between border-b border-border px-4 py-3">
+              <div>
+                <h3 className="text-sm font-semibold text-hh-navy">Personal</h3>
+                <p className="text-xs text-muted-foreground">Craig and Laura only</p>
+              </div>
+              <span className="text-xs font-semibold text-muted-foreground">{personalOpen} open</span>
+            </div>
+            <ActionLines
+              items={personal}
+              empty="No personal items in this filter."
+              onOpen={setDetailId}
+            />
+          </CardContent>
+        </Card>
+      )}
+
+      <ActionDetailDialog
+        actionId={detailId}
+        onClose={() => setDetailId(null)}
+        onEdit={onEdit}
+      />
     </div>
   );
 }
